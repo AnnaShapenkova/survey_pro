@@ -1,0 +1,13 @@
+.git
+.env
+.venv
+__pycache__
+*.pyc
+.DS_Store
+props
+db/.ruff_cache
+.tools
+.pytest_cache
+test-results
+tests
+data

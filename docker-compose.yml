@@ -1,0 +1,71 @@
+x-app: &app
+  build: .
+  restart: unless-stopped
+  init: true
+  volumes:
+    - library:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-env: &env
+  DATABASE_URL: postgresql://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/survey_research
+  DATA_DIR: /data
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+  MODEL: ${MODEL}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SERVICE_USER_POSTGRES}
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: survey_research
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d survey_research"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  scheduler:
+    <<: *app
+    environment:
+      <<: *env
+      BLOCK: scheduler
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      COLLECT_INTERVAL_SECONDS: ${COLLECT_INTERVAL_SECONDS:-86400}
+
+  worker:
+    <<: *app
+    environment:
+      <<: *env
+      BLOCK: worker
+      ANALYSIS_MAX_CHUNKS: ${ANALYSIS_MAX_CHUNKS:-40}
+
+  bot:
+    <<: *app
+    expose:
+      - "8080"
+    environment:
+      <<: *env
+      BLOCK: bot
+      PORT: 8080
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      WEB_USER: ${WEB_USER:-research}
+      WEB_PASSWORD: ${WEB_PASSWORD}
+      DIGEST_TIMEZONE: ${DIGEST_TIMEZONE:-Europe/Moscow}
+      DIGEST_HOUR: ${DIGEST_HOUR:-9}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  pgdata:
+  library:

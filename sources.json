@@ -1,0 +1,13 @@
+[
+  {"key":"surveyjs-releases","name":"SurveyJS Form Library: releases","kind":"github_releases","repo":"surveyjs/survey-library","platform":"SurveyJS","source_type":"official","limit":10},
+  {"key":"limesurvey-tags","name":"LimeSurvey: versions","kind":"github_tags","repo":"LimeSurvey/LimeSurvey","platform":"LimeSurvey","source_type":"official","limit":10},
+  {"key":"surveyjs-docs","name":"SurveyJS: documentation","kind":"page","url":"https://surveyjs.io/form-library/documentation/overview","platform":"SurveyJS","source_type":"official"},
+  {"key":"surveyjs-examples","name":"SurveyJS: examples","kind":"listing","url":"https://surveyjs.io/form-library/examples/overview","selector":"a[href*='/form-library/examples/']","platform":"SurveyJS","source_type":"official","limit":10},
+  {"key":"limesurvey-blog","name":"LimeSurvey: blog","kind":"listing","url":"https://www.limesurvey.org/blog","selector":"a[href*='/blog/']","exclude_pattern":"^/blog/[^/]+/?$","platform":"LimeSurvey","source_type":"official","limit":10},
+  {"key":"limesurvey-expression","name":"LimeSurvey: ExpressionScript","kind":"page","url":"https://www.limesurvey.org/manual/ExpressionScript_-_Presentation","platform":"LimeSurvey","source_type":"official"},
+  {"key":"qualtrics-tools","name":"Qualtrics: Survey Tools","kind":"page","url":"https://www.qualtrics.com/support/survey-platform/survey-module/survey-tools/","platform":"Qualtrics","source_type":"official"},
+  {"key":"qualtrics-updates","name":"Qualtrics: product updates","kind":"page","url":"https://www.qualtrics.com/product-updates/","platform":"Qualtrics","source_type":"official"},
+  {"key":"discovery-surveyjs","name":"GitHub: new SurveyJS examples","kind":"github_search","query":"surveyjs in:readme topic:survey","platform":"SurveyJS","source_type":"community","limit":5},
+  {"key":"discovery-limesurvey","name":"GitHub: LimeSurvey integrations","kind":"github_search","query":"limesurvey in:name,description","platform":"LimeSurvey","source_type":"community","limit":5},
+  {"key":"discovery-qualtrics","name":"GitHub: Qualtrics examples","kind":"github_search","query":"qualtrics in:name,description","platform":"Qualtrics","source_type":"community","limit":5}
+]
