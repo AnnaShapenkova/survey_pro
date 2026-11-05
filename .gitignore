@@ -8,3 +8,4 @@ data/
 .tools/
 test-results/
 *.log
+Upload-to-GitHub.cmd

@@ -13,10 +13,12 @@ from kb.config import integer
 from kb.digests import create_digest, deliver
 from kb.search import search
 from kb.store import save_document
+from kb.telegram_auth import allowed, mini_app_url
 
 COMMANDS = [("start", "Подписаться на дайджест"), ("stop", "Отписаться"),
             ("status", "Состояние базы и сбора"), ("search", "Поиск по библиотеке"),
-            ("ask", "Вопрос по материалам"), ("adapt", "Адаптация для EnjoySurvey 4.1"), ("id", "ID вашего чата")]
+            ("ask", "Вопрос по материалам"), ("adapt", "Адаптация для EnjoySurvey 4.1"),
+            ("feed", "Открыть ленту"), ("id", "ID вашего чата")]
 
 
 def api(method, payload=None, timeout=45):
@@ -43,13 +45,20 @@ def message_parts(text, limit=3500):
 
 
 def say(chat_id, text):
-    for part in message_parts(text):
-        api("sendMessage", {"chat_id": chat_id, "text": part, "disable_web_page_preview": True})
+    parts = list(message_parts(text))
+    url = mini_app_url()
+    for i, part in enumerate(parts):
+        payload = {"chat_id": chat_id, "text": part, "disable_web_page_preview": True}
+        if url and allowed(chat_id) and i == len(parts) - 1:
+            payload["reply_markup"] = {"inline_keyboard": [[{"text": "Открыть ленту", "web_app": {"url": url}}]]}
+        api("sendMessage", payload)
 
 
-def allowed(chat_id):
-    ids = {x.strip() for x in os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",") if x.strip()}
-    return str(chat_id) in ids
+def configure_menu():
+    url = mini_app_url()
+    api("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
+    button = {"type": "web_app", "text": "Лента", "web_app": {"url": url}} if url else {"type": "commands"}
+    api("setChatMenuButton", {"menu_button": button})
 
 
 def sync_subscribers(conn):
@@ -121,6 +130,8 @@ def handle(conn, message):
         say(chat["id"], "Подписка отключена.")
     elif command == "/status":
         say(chat["id"], status_text(conn))
+    elif command == "/feed":
+        say(chat["id"], "Откройте ленту кнопкой ниже." if mini_app_url() else "Для ленты нужно задать MINI_APP_URL в настройках сервиса bot и перезапустить его.")
     elif command in {"/ask", "/adapt"} and question:
         say(chat["id"], answer(conn, question, adapt=command == "/adapt"))
     elif command == "/search" and question:
@@ -130,14 +141,14 @@ def handle(conn, message):
     elif text and not text.startswith("/"):
         say(chat["id"], answer(conn, text))
     else:
-        say(chat["id"], "Команды: /start, /stop, /status, /search запрос, /ask вопрос, /adapt задача, /id.")
+        say(chat["id"], "Команды: /start, /stop, /status, /feed, /search запрос, /ask вопрос, /adapt задача, /id.")
 
 
 def polling():
     with db.connect() as conn:
         if not conn.execute("SELECT pg_try_advisory_lock(4210) AS locked").fetchone()["locked"]:
             raise RuntimeError("Another bot process is already running")
-        api("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
+        configure_menu()
         if api("getWebhookInfo").get("url"):
             raise RuntimeError("Existing webhook is enabled; stop old bot and remove webhook before enabling polling")
         me = api("getMe")

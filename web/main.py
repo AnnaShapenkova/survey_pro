@@ -1,6 +1,7 @@
 import base64
 import hmac
 import html
+import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -9,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 import db
 from kb.config import data_dir, integer
 from kb.search import search
+from kb.telegram_auth import validate_init_data
 
 
 def e(value):
@@ -51,6 +53,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path)
         try:
+            if path.path in {"/telegram", "/telegram/", "/telegram/app.js"}:
+                name = "telegram.js" if path.path.endswith(".js") else "telegram.html"
+                kind = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/html; charset=utf-8"
+                self.respond(200, Path(__file__).with_name(name).read_bytes(), kind, telegram=True)
+                return
             if path.path == "/health":
                 with db.connect() as conn:
                     conn.execute("SELECT 1")
@@ -74,27 +81,86 @@ class Handler(BaseHTTPRequestHandler):
                     if not row:
                         self.respond(404, b"not found", "text/plain")
                         return
-                    file = (data_dir() / row["raw_path"]).resolve()
-                    if not file.is_relative_to(data_dir().resolve()):
-                        raise ValueError("Invalid archive path")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Disposition", f'attachment; filename="source-{version}.bin"')
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(file.read_bytes())
+                    self.original(row, version)
                 else:
                     self.respond(404, b"not found", "text/plain")
         except Exception as error:
             db.log("web", type(error).__name__)
             self.respond(503, b"service unavailable", "text/plain")
 
-    def respond(self, status, body, kind):
+    def do_POST(self):
+        path = urlsplit(self.path).path
+        if path not in {"/telegram/feed", "/telegram/original"}:
+            self.respond(404, b"not found", "text/plain")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 32768 or self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+                raise ValueError("Некорректный запрос ленты.")
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("Некорректный запрос ленты.")
+            validate_init_data(payload.get("init_data"))
+        except PermissionError as error:
+            self.json_error(403, str(error))
+            return
+        except (ValueError, TypeError) as error:
+            self.json_error(401, str(error) if isinstance(error, ValueError) and not isinstance(error, json.JSONDecodeError) else "Некорректные данные запуска Telegram.")
+            return
+        except Exception as error:
+            db.log("web", f"Telegram authentication: {type(error).__name__}")
+            self.json_error(503, "Не настроена авторизация Telegram. Проверьте TELEGRAM_TOKEN в сервисе bot.")
+            return
+        try:
+            with db.connect() as conn:
+                if path == "/telegram/feed":
+                    query = payload.get("query", "")
+                    if not isinstance(query, str):
+                        raise ValueError("Invalid query")
+                    page = render(conn, query[:1000])
+                    self.respond(200, page.encode(), "text/html; charset=utf-8", telegram=True)
+                else:
+                    version = payload.get("version_id")
+                    if type(version) is not int or version <= 0:
+                        raise ValueError("Invalid version ID")
+                    row = conn.execute("SELECT raw_path FROM kb_versions WHERE id=%s", (version,)).fetchone()
+                    if row:
+                        self.original(row, version)
+                    else:
+                        self.json_error(404, "Оригинал не найден.")
+        except ValueError:
+            self.json_error(400, "Некорректный запрос.")
+        except FileNotFoundError:
+            self.json_error(404, "Файл оригинала отсутствует в хранилище.")
+        except Exception as error:
+            db.log("web", f"Telegram feed: {type(error).__name__}")
+            self.json_error(503, "Не удалось загрузить библиотеку. Проверьте логи сервиса bot.")
+
+    def original(self, row, version):
+        file = (data_dir() / row["raw_path"]).resolve()
+        if not file.is_relative_to(data_dir().resolve()):
+            raise ValueError("Invalid archive path")
+        body = file.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Disposition", f'attachment; filename="source-{version}.bin"')
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def json_error(self, status, message):
+        self.respond(status, json.dumps({"error": message}, ensure_ascii=False).encode(), "application/json; charset=utf-8", telegram=True)
+
+    def respond(self, status, body, kind, telegram=False):
         self.send_response(status)
         self.send_header("Content-Type", kind)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        policy = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        if telegram:
+            policy = "default-src 'none'; script-src 'self' https://telegram.org; connect-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors https://web.telegram.org https://*.telegram.org"
+        self.send_header("Content-Security-Policy", policy)
         self.end_headers()
         self.wfile.write(body)
 
